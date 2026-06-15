@@ -1,6 +1,6 @@
 [package]
 name = "adg-companion"
-version = "1.0.0"
+version = "2.0.0"
 description = "ADG Companion — ARAM: Mayhem sync"
 authors = ["ADG"]
 edition = "2021"
