@@ -1,14 +1,13 @@
+use anyhow::{Context, Result};
+use reqwest::Client;
+use serde_json::Value;
 /// liveclient.rs — lê a LiveClient Data API (porta 2999, cert self-signed, sem auth)
 /// durante a partida. Usada pra capturar o snapshot de stats finais do ARAM: Mayhem.
 ///
 /// O ARAM Mayhem é identificado por `gameMode == "KIWI"` em `/liveclientdata/gamestats`
 /// (Arena é CHERRY). A LiveClient só responde EM JOGO e só dá `championStats` completo
 /// do jogador ativo (os outros 9 não têm) — por isso o snapshot é só do dono.
-
 use std::time::Duration;
-use anyhow::{Context, Result};
-use reqwest::Client;
-use serde_json::Value;
 
 const BASE: &str = "https://127.0.0.1:2999";
 
@@ -22,7 +21,11 @@ fn client() -> Result<Client> {
 
 async fn get_json(path: &str) -> Result<Value> {
     let c = client()?;
-    let resp = c.get(format!("{BASE}{path}")).send().await.context("GET LiveClient")?;
+    let resp = c
+        .get(format!("{BASE}{path}"))
+        .send()
+        .await
+        .context("GET LiveClient")?;
     if !resp.status().is_success() {
         anyhow::bail!("LiveClient {} em {}", resp.status(), path);
     }
@@ -32,7 +35,9 @@ async fn get_json(path: &str) -> Result<Value> {
 /// `gameMode` da partida em andamento, ou None se a LiveClient não responde (fora de jogo).
 pub async fn game_mode() -> Option<String> {
     let v = get_json("/liveclientdata/gamestats").await.ok()?;
-    v.get("gameMode").and_then(|m| m.as_str()).map(|s| s.to_string())
+    v.get("gameMode")
+        .and_then(|m| m.as_str())
+        .map(|s| s.to_string())
 }
 
 /// `championStats` do jogador ativo (build atual). Repassamos o objeto cru pro backend,

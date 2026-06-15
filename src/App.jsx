@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import { checkForUpdate, downloadAndRestart } from './updater'
 
 /* ============================================================
    ADG Companion — shell multi-jogo.
@@ -195,6 +196,55 @@ function SoonPanel({ game }) {
   )
 }
 
+// ── Auto-update in-app (updater do Tauri) ─────────────────────────────────────
+
+function UpdateBanner() {
+  const [update, setUpdate] = useState(null)   // objeto update disponível
+  const [phase, setPhase]   = useState('idle')  // idle | downloading | error
+  const [pct, setPct]       = useState(0)
+
+  useEffect(() => {
+    let alive = true
+    const run = async () => {
+      const u = await checkForUpdate()
+      if (alive && u) setUpdate(u)
+    }
+    run()
+    const id = setInterval(run, 6 * 60 * 60 * 1000) // a cada 6h
+    return () => { alive = false; clearInterval(id) }
+  }, [])
+
+  if (!update) return null
+
+  async function handleInstall() {
+    setPhase('downloading')
+    try {
+      await downloadAndRestart(update, (d, t) => setPct(t ? Math.round((d / t) * 100) : 0))
+      // relaunch reinicia o app; normalmente não passa daqui
+    } catch (e) {
+      console.error('[updater] instalação falhou:', e)
+      setPhase('error')
+    }
+  }
+
+  return (
+    <div className="update-banner">
+      {phase === 'downloading' ? (
+        <span>Baixando atualização… {pct}%</span>
+      ) : phase === 'error' ? (
+        <span>Falha ao atualizar. Tente de novo mais tarde.</span>
+      ) : (
+        <>
+          <span>Atualização v{update.version} disponível.</span>
+          <button className="btn btn-primary btn-sm" onClick={handleInstall}>
+            Reiniciar e atualizar
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
 // ── Shell principal (seletor de jogos + painel) ───────────────────────────────
 
 function MainShell({ onLogout }) {
@@ -213,6 +263,7 @@ function MainShell({ onLogout }) {
 
   return (
     <div className="shell">
+      <UpdateBanner />
       <header className="shell__head">
         {game
           ? <button className="shell__back" onClick={() => setSelected(null)}>‹ Jogos</button>

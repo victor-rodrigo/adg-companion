@@ -4,10 +4,9 @@
 /// command-line for `--app-port` and `--remoting-auth-token`, then build a
 /// reqwest client that speaks HTTPS to `127.0.0.1:{port}` with HTTP Basic auth
 /// and self-signed cert acceptance.
-
 use anyhow::{bail, Context, Result};
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
-use reqwest::{Client, header};
+use reqwest::{header, Client};
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashSet;
@@ -25,7 +24,7 @@ const HISTORY_WINDOW_END: u32 = 19;
 
 #[derive(Debug, Clone)]
 pub struct LcuCreds {
-    pub port:  u16,
+    pub port: u16,
     pub token: String,
 }
 
@@ -43,12 +42,13 @@ pub fn discover_lcu() -> Result<LcuCreds> {
             continue;
         }
 
-        let cmd: Vec<String> = proc.cmd()
+        let cmd: Vec<String> = proc
+            .cmd()
             .iter()
             .map(|s| s.to_string_lossy().into_owned())
             .collect();
 
-        let mut port:  Option<u16>   = None;
+        let mut port: Option<u16> = None;
         let mut token: Option<String> = None;
 
         for arg in &cmd {
@@ -63,7 +63,9 @@ pub fn discover_lcu() -> Result<LcuCreds> {
             (Some(p), Some(t)) => return Ok(LcuCreds { port: p, token: t }),
             _ => {
                 // Found the process but couldn't parse args — log and keep looking
-                eprintln!("[lcu] processo LeagueClientUx encontrado mas sem port/token. cmd: {cmd:?}");
+                eprintln!(
+                    "[lcu] processo LeagueClientUx encontrado mas sem port/token. cmd: {cmd:?}"
+                );
             }
         }
     }
@@ -98,11 +100,11 @@ fn build_lcu_client(creds: &LcuCreds) -> Result<(Client, String)> {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Summoner {
-    pub puuid:    String,
+    pub puuid: String,
     #[serde(rename = "gameName", default)]
     pub game_name: String,
     #[serde(rename = "tagLine", default)]
-    pub tag_line:  String,
+    pub tag_line: String,
 }
 
 /// Full game detail from `/lol-match-history/v1/games/{gameId}`.
@@ -227,19 +229,33 @@ pub async fn get_latest_mayhem_game_id(creds: &LcuCreds, puuid: &str) -> Result<
             }
         }
     }
-    Ok(games.first().and_then(|g| g.get("gameId").and_then(|v| v.as_i64())))
+    Ok(games
+        .first()
+        .and_then(|g| g.get("gameId").and_then(|v| v.as_i64())))
 }
 
 /// Busca um lote [beg, end] do histórico e devolve o array de jogos (lida com os 2 formatos de resposta).
-async fn fetch_history_page(client: &Client, base: &str, path: &str, beg: u32, end: u32) -> Result<Vec<Value>> {
-    let url = format!("{base}/lol-match-history/v1/products/lol/{path}/matches?begIndex={beg}&endIndex={end}");
+async fn fetch_history_page(
+    client: &Client,
+    base: &str,
+    path: &str,
+    beg: u32,
+    end: u32,
+) -> Result<Vec<Value>> {
+    let url = format!(
+        "{base}/lol-match-history/v1/products/lol/{path}/matches?begIndex={beg}&endIndex={end}"
+    );
     let resp = client.get(&url).send().await.context("GET match history")?;
     if !resp.status().is_success() {
         bail!("LCU retornou {} em match history", resp.status());
     }
     let raw: Value = resp.json().await.context("parsear match history")?;
     let gv = raw.get("games").unwrap_or(&Value::Null);
-    let arr = if let Some(inner) = gv.get("games") { inner } else { gv };
+    let arr = if let Some(inner) = gv.get("games") {
+        inner
+    } else {
+        gv
+    };
     Ok(arr.as_array().cloned().unwrap_or_default())
 }
 
@@ -255,7 +271,9 @@ pub async fn get_game_detail(creds: &LcuCreds, game_id: i64) -> Result<GameDetai
     if !resp.status().is_success() {
         bail!("LCU retornou {} em /games/{game_id}", resp.status());
     }
-    resp.json::<GameDetail>().await.context("parsear game detail")
+    resp.json::<GameDetail>()
+        .await
+        .context("parsear game detail")
 }
 
 // ── Stats → ADG payload mapping ───────────────────────────────────────────────
@@ -271,7 +289,11 @@ fn opt_int(stats: &Value, key: &str) -> i64 {
 /// players, então qualquer membro do time sobe os stats ricos de todo mundo. O blob
 /// `raw` por participante é o marcador de "payload rico" no backend (hasRich).
 fn build_participant(p: &Participant, ident: Option<&PlayerIdentity>) -> Value {
-    let stats = p.stats.as_ref().cloned().unwrap_or(Value::Object(Default::default()));
+    let stats = p
+        .stats
+        .as_ref()
+        .cloned()
+        .unwrap_or(Value::Object(Default::default()));
     let win: bool = match stats.get("win") {
         Some(Value::Bool(b)) => *b,
         Some(Value::Number(n)) => n.as_i64().unwrap_or(0) == 1,
@@ -288,7 +310,11 @@ fn build_participant(p: &Participant, ident: Option<&PlayerIdentity>) -> Value {
     let (puuid, game_name, tag_line) = match ident {
         Some(pi) => (
             pi.puuid.clone(),
-            if !pi.game_name.is_empty() { pi.game_name.clone() } else { pi.summoner_name.clone() },
+            if !pi.game_name.is_empty() {
+                pi.game_name.clone()
+            } else {
+                pi.summoner_name.clone()
+            },
             pi.tag_line.clone(),
         ),
         None => (String::new(), String::new(), String::new()),
@@ -366,11 +392,12 @@ fn build_participant(p: &Participant, ident: Option<&PlayerIdentity>) -> Value {
 ///   totalMinionsKilled          → totalMinions
 ///   neutralMinionsKilled        → neutralMinions
 ///   champLevel                  → champLevel
-pub fn build_match_payload(
-    game: &GameDetail,
-    participant: &Participant,
-) -> Value {
-    let stats = participant.stats.as_ref().cloned().unwrap_or(Value::Object(Default::default()));
+pub fn build_match_payload(game: &GameDetail, participant: &Participant) -> Value {
+    let stats = participant
+        .stats
+        .as_ref()
+        .cloned()
+        .unwrap_or(Value::Object(Default::default()));
 
     let win_val = stats.get("win");
     let win: bool = match win_val {
@@ -391,12 +418,18 @@ pub fn build_match_payload(
         .collect();
 
     // Time completo: todos os participantes da partida (com identidade).
-    let participants: Vec<Value> = game.participants.iter().map(|p| {
-        let ident = game.participant_identities.iter()
-            .find(|pi| pi.participant_id == p.participant_id)
-            .and_then(|pi| pi.player.as_ref());
-        build_participant(p, ident)
-    }).collect();
+    let participants: Vec<Value> = game
+        .participants
+        .iter()
+        .map(|p| {
+            let ident = game
+                .participant_identities
+                .iter()
+                .find(|pi| pi.participant_id == p.participant_id)
+                .and_then(|pi| pi.player.as_ref());
+            build_participant(p, ident)
+        })
+        .collect();
 
     serde_json::json!({
         "gameId":       game.game_id,

@@ -8,7 +8,6 @@
 ///   • no fim do jogo, snapshot e partida entram na OUTBOX persistente (disco);
 ///   • o dreno roda no fim do jogo, no ciclo de 20s e no startup: resolve PendingMatch
 ///     via /games/{gameId} (stats ricos dos 10 players) e envia tudo; só remove após 2xx.
-
 mod adg;
 mod lcu;
 mod liveclient;
@@ -59,7 +58,7 @@ pub struct SummonerInfo {
     #[serde(rename = "gameName")]
     pub game_name: String,
     #[serde(rename = "tagLine")]
-    pub tag_line:  String,
+    pub tag_line: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -79,20 +78,20 @@ pub type SharedState = Arc<Mutex<AppState>>;
 pub struct FrontendState {
     #[serde(rename = "lcuConnected")]
     lcu_connected: bool,
-    summoner:      Option<SummonerInfo>,
+    summoner: Option<SummonerInfo>,
     #[serde(rename = "loggedIn")]
-    logged_in:     bool,
+    logged_in: bool,
     #[serde(rename = "apiBase")]
-    api_base:      String,
+    api_base: String,
     #[serde(rename = "syncedCount")]
-    synced_count:  u64,
+    synced_count: u64,
     #[serde(rename = "lastSync")]
-    last_sync:     Option<i64>,
+    last_sync: Option<i64>,
     #[serde(rename = "lastError")]
-    last_error:    Option<String>,
+    last_error: Option<String>,
     #[serde(rename = "updateRequired")]
     update_required: Option<UpdateInfo>,
-    version:       String,
+    version: String,
     #[serde(rename = "pendingCount")]
     pending_count: usize,
 }
@@ -104,31 +103,33 @@ pub struct FrontendState {
 async fn get_state(state: State<'_, SharedState>) -> Result<FrontendState, String> {
     let s = state.lock().await;
     Ok(FrontendState {
-        lcu_connected:   s.lcu_connected,
-        summoner:        s.summoner.clone(),
-        logged_in:       s.token.is_some(),
-        api_base:        api_base(),
-        synced_count:    s.config.total_synced,
-        last_sync:       s.config.last_sync_ms,
-        last_error:      s.last_error.clone(),
+        lcu_connected: s.lcu_connected,
+        summoner: s.summoner.clone(),
+        logged_in: s.token.is_some(),
+        api_base: api_base(),
+        synced_count: s.config.total_synced,
+        last_sync: s.config.last_sync_ms,
+        last_error: s.last_error.clone(),
         update_required: s.update_required.clone(),
-        version:         adg::APP_VERSION.to_string(),
-        pending_count:   s.outbox.len(),
+        version: adg::APP_VERSION.to_string(),
+        pending_count: s.outbox.len(),
     })
 }
 
 /// URL base da API do ADG — assada no build via env `ADG_API_URL` (sem segredo, não
 /// configurável pelo usuário). Default: localhost para desenvolvimento.
 fn api_base() -> String {
-    option_env!("ADG_API_URL").unwrap_or("http://localhost:3100").to_string()
+    option_env!("ADG_API_URL")
+        .unwrap_or("http://localhost:3100")
+        .to_string()
 }
 
 /// Logs in to ADG and stores the JWT in the OS keychain.
 #[tauri::command]
 async fn login(
-    email:    String,
+    email: String,
     password: String,
-    state:    State<'_, SharedState>,
+    state: State<'_, SharedState>,
 ) -> Result<(), String> {
     let api_base = api_base();
 
@@ -158,7 +159,9 @@ async fn logout(state: State<'_, SharedState>) -> Result<(), String> {
 /// Returns `{ sent: u64, total: u64 }` (total = pendentes restantes na outbox).
 #[tauri::command]
 async fn sync_now(state: State<'_, SharedState>) -> Result<serde_json::Value, String> {
-    run_sync(state.inner().clone()).await.map_err(|e| e.to_string())
+    run_sync(state.inner().clone())
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Abre uma URL http(s) no navegador padrão (ex.: download da versão nova).
@@ -168,7 +171,9 @@ async fn open_external(app: tauri::AppHandle, url: String) -> Result<(), String>
     if !url.starts_with("http://") && !url.starts_with("https://") {
         return Err("URL inválida".into());
     }
-    app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|e| e.to_string())
 }
 
 // ── Sync logic (shared between command + background task) ─────────────────────
@@ -178,7 +183,7 @@ async fn run_sync(shared: SharedState) -> Result<serde_json::Value> {
         let s = shared.lock().await;
         let token = match &s.token {
             Some(t) => t.clone(),
-            None    => anyhow::bail!("não logado"),
+            None => anyhow::bail!("não logado"),
         };
         (token, api_base())
     };
@@ -199,7 +204,7 @@ async fn run_sync(shared: SharedState) -> Result<serde_json::Value> {
                     let mut s = shared.lock().await;
                     s.summoner = Some(SummonerInfo {
                         game_name: sm.game_name.clone(),
-                        tag_line:  sm.tag_line.clone(),
+                        tag_line: sm.tag_line.clone(),
                     });
                 }
                 summoner = Some(sm);
@@ -221,7 +226,8 @@ async fn run_sync(shared: SharedState) -> Result<serde_json::Value> {
                     let mut s = shared.lock().await;
                     for id in ids {
                         if !s.outbox.has_match_for(id) {
-                            s.outbox.push(outbox::OutboxItem::PendingMatch { game_id: id });
+                            s.outbox
+                                .push(outbox::OutboxItem::PendingMatch { game_id: id });
                         }
                     }
                     s.backfilled_lcu = Some(session_key);
@@ -231,7 +237,14 @@ async fn run_sync(shared: SharedState) -> Result<serde_json::Value> {
         }
     }
 
-    let sent = drain_outbox(&shared, &token, &api_base, creds.as_ref(), summoner.as_ref()).await;
+    let sent = drain_outbox(
+        &shared,
+        &token,
+        &api_base,
+        creds.as_ref(),
+        summoner.as_ref(),
+    )
+    .await;
 
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -272,7 +285,9 @@ async fn drain_outbox(
     for entry in entries {
         match &entry.item {
             outbox::OutboxItem::PendingMatch { game_id } => {
-                let (Some(c), Some(sm)) = (creds, summoner) else { continue };
+                let (Some(c), Some(sm)) = (creds, summoner) else {
+                    continue;
+                };
                 match lcu::get_game_detail(c, *game_id).await {
                     Ok(game) => {
                         if let Some(part) = lcu::find_my_participant(&game, &sm.puuid) {
@@ -280,12 +295,18 @@ async fn drain_outbox(
                             let mut s = shared.lock().await;
                             s.outbox.replace_item(
                                 entry.id,
-                                outbox::OutboxItem::MatchPayload { game_id: *game_id, payload },
+                                outbox::OutboxItem::MatchPayload {
+                                    game_id: *game_id,
+                                    payload,
+                                },
                             );
                         } else {
                             // partida sem participantes — não tem o que enviar
                             let mut s = shared.lock().await;
-                            s.outbox.record_permanent_failure(entry.id, "participante não encontrado no jogo");
+                            s.outbox.record_permanent_failure(
+                                entry.id,
+                                "participante não encontrado no jogo",
+                            );
                         }
                     }
                     Err(e) => {
@@ -299,9 +320,14 @@ async fn drain_outbox(
                 // o POST /matches exige a identidade Riot (validação no backend)
                 let Some(sm) = summoner else { continue };
                 let result = adg::post_matches(
-                    api_base, token, &sm.puuid, &sm.game_name, &sm.tag_line,
+                    api_base,
+                    token,
+                    &sm.puuid,
+                    &sm.game_name,
+                    &sm.tag_line,
                     std::slice::from_ref(payload),
-                ).await;
+                )
+                .await;
                 let mut s = shared.lock().await;
                 match result {
                     Ok(n) => {
@@ -313,8 +339,13 @@ async fn drain_outbox(
                     Err(e) => handle_send_error(&mut s, entry.id, e),
                 }
             }
-            outbox::OutboxItem::Snapshot { game_id, champion_stats, peak } => {
-                let result = adg::post_snapshot(api_base, token, *game_id, champion_stats, peak).await;
+            outbox::OutboxItem::Snapshot {
+                game_id,
+                champion_stats,
+                peak,
+            } => {
+                let result =
+                    adg::post_snapshot(api_base, token, *game_id, champion_stats, peak).await;
                 let mut s = shared.lock().await;
                 match result {
                     Ok(()) => {
@@ -338,9 +369,15 @@ async fn drain_outbox(
 /// Aplica a semântica de retry do AdgError num item da outbox.
 fn handle_send_error(s: &mut AppState, entry_id: u64, e: adg::AdgError) {
     match e {
-        adg::AdgError::UpdateRequired { min_version, download_url } => {
+        adg::AdgError::UpdateRequired {
+            min_version,
+            download_url,
+        } => {
             s.last_error = Some(format!("Atualização obrigatória (mínima {min_version})"));
-            s.update_required = Some(UpdateInfo { min_version, download_url });
+            s.update_required = Some(UpdateInfo {
+                min_version,
+                download_url,
+            });
             // o item fica intacto na outbox — sobe depois do update
         }
         adg::AdgError::Permanent(msg) => {
@@ -406,13 +443,21 @@ fn spawn_live_capture(shared: SharedState) {
     tauri::async_runtime::spawn(async move {
         // stats de build cujo PICO (máximo durante a partida) vira recorde "Maior X".
         const PEAK_FIELDS: [&str; 9] = [
-            "attackDamage", "abilityPower", "armor", "magicResist", "maxHealth",
-            "attackSpeed", "moveSpeed", "lifeSteal", "omnivamp",
+            "attackDamage",
+            "abilityPower",
+            "armor",
+            "magicResist",
+            "maxHealth",
+            "attackSpeed",
+            "moveSpeed",
+            "lifeSteal",
+            "omnivamp",
         ];
 
         let poll = Duration::from_secs(3); // poll curto pra pegar picos momentâneos melhor
         let mut last_stats: Option<serde_json::Value> = None;
-        let mut peak: std::collections::HashMap<&'static str, f64> = std::collections::HashMap::new();
+        let mut peak: std::collections::HashMap<&'static str, f64> =
+            std::collections::HashMap::new();
         let mut game_id: Option<i64> = None;
         let mut was_in_game = false;
         loop {
@@ -424,7 +469,9 @@ fn spawn_live_capture(shared: SharedState) {
                     for &f in &PEAK_FIELDS {
                         if let Some(v) = cs.get(f).and_then(|x| x.as_f64()) {
                             let e = peak.entry(f).or_insert(f64::MIN);
-                            if v > *e { *e = v; }
+                            if v > *e {
+                                *e = v;
+                            }
                         }
                     }
                     last_stats = Some(cs); // o último vira o "build final"
@@ -456,13 +503,14 @@ fn spawn_live_capture(shared: SharedState) {
                             let mut s = shared.lock().await;
                             if !s.outbox.has_snapshot_for(gid) {
                                 s.outbox.push(outbox::OutboxItem::Snapshot {
-                                    game_id:        gid,
+                                    game_id: gid,
                                     champion_stats: cs,
-                                    peak:           serde_json::Value::Object(peak_obj),
+                                    peak: serde_json::Value::Object(peak_obj),
                                 });
                             }
                             if !s.config.synced_ids.contains(&gid) && !s.outbox.has_match_for(gid) {
-                                s.outbox.push(outbox::OutboxItem::PendingMatch { game_id: gid });
+                                s.outbox
+                                    .push(outbox::OutboxItem::PendingMatch { game_id: gid });
                             }
                         }
                         // dreno imediato (best-effort; o ciclo de 20s cobre falhas)
@@ -513,11 +561,11 @@ pub fn run() {
         config,
         outbox,
         token,
-        summoner:        None,
-        lcu_connected:   false,
+        summoner: None,
+        lcu_connected: false,
         update_required: None,
-        backfilled_lcu:  None,
-        last_error:      None,
+        backfilled_lcu: None,
+        last_error: None,
     };
 
     let shared: SharedState = Arc::new(Mutex::new(initial_state));
@@ -526,6 +574,8 @@ pub fn run() {
     let shared_for_boot = shared.clone();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .manage(shared)
         .invoke_handler(tauri::generate_handler![
@@ -560,7 +610,10 @@ pub fn run() {
                 .menu(&menu)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => {
-                        if let Some(w) = app.get_webview_window("main") { let _ = w.show(); let _ = w.set_focus(); }
+                        if let Some(w) = app.get_webview_window("main") {
+                            let _ = w.show();
+                            let _ = w.set_focus();
+                        }
                     }
                     "quit" => app.exit(0),
                     _ => {}
@@ -573,7 +626,10 @@ pub fn run() {
                     } = event
                     {
                         let app = tray.app_handle();
-                        if let Some(w) = app.get_webview_window("main") { let _ = w.show(); let _ = w.set_focus(); }
+                        if let Some(w) = app.get_webview_window("main") {
+                            let _ = w.show();
+                            let _ = w.set_focus();
+                        }
                     }
                 })
                 .build(app)?;

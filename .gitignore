@@ -2,3 +2,9 @@ node_modules/
 dist/
 src-tauri/target/
 src-tauri/gen/
+
+# Chaves de assinatura do updater — NUNCA commitar a privada
+adg-companion.key
+adg-companion.key.pub
+*.key
+*.key.pub

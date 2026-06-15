@@ -4,7 +4,6 @@
 /// backend bloqueia versões abaixo da mínima com HTTP 426. Os erros saem tipados
 /// (`AdgError`) pra outbox decidir o retry: 426 trava tudo até atualizar, 4xx
 /// descarta após N tentativas, 5xx/rede retenta pra sempre.
-
 use reqwest::Client;
 use serde_json::Value;
 
@@ -15,7 +14,10 @@ const VERSION_HEADER: &str = "x-companion-version";
 #[derive(Debug, thiserror::Error)]
 pub enum AdgError {
     #[error("Atualização obrigatória do companion (mínima {min_version})")]
-    UpdateRequired { min_version: String, download_url: Option<String> },
+    UpdateRequired {
+        min_version: String,
+        download_url: Option<String>,
+    },
     /// 4xx — o payload/credencial está errado; retentar igual não resolve.
     #[error("{0}")]
     Permanent(String),
@@ -34,8 +36,15 @@ async fn error_from(resp: reqwest::Response) -> AdgError {
     let body: Value = resp.json().await.unwrap_or_default();
     if status.as_u16() == 426 {
         return AdgError::UpdateRequired {
-            min_version:  body.get("minVersion").and_then(|v| v.as_str()).unwrap_or("?").to_string(),
-            download_url: body.get("downloadUrl").and_then(|v| v.as_str()).map(String::from),
+            min_version: body
+                .get("minVersion")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?")
+                .to_string(),
+            download_url: body
+                .get("downloadUrl")
+                .and_then(|v| v.as_str())
+                .map(String::from),
         };
     }
     let msg = body
@@ -64,7 +73,10 @@ pub async fn login(api_base: &str, email: &str, password: &str) -> Result<String
     if !resp.status().is_success() {
         return Err(error_from(resp).await);
     }
-    let body: Value = resp.json().await.map_err(transient("parsear resposta de login"))?;
+    let body: Value = resp
+        .json()
+        .await
+        .map_err(transient("parsear resposta de login"))?;
     body.get("token")
         .and_then(|v| v.as_str())
         .map(String::from)
@@ -101,7 +113,10 @@ pub async fn post_matches(
     if !resp.status().is_success() {
         return Err(error_from(resp).await);
     }
-    let body: Value = resp.json().await.map_err(transient("parsear resposta do ingest"))?;
+    let body: Value = resp
+        .json()
+        .await
+        .map_err(transient("parsear resposta do ingest"))?;
     Ok(body.get("inserted").and_then(|v| v.as_u64()).unwrap_or(0))
 }
 

@@ -5,7 +5,6 @@
 ///   • Transient (5xx/rede/LCU indisponível): retenta pra sempre.
 ///   • Permanent (4xx): descarta após MAX_PERMANENT_FAILURES.
 ///   • UpdateRequired (426): NUNCA descarta — fica retido até o app ser atualizado.
-
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -21,7 +20,11 @@ pub enum OutboxItem {
     /// Payload completo da partida (10 players ricos), pronto pra POST /matches.
     MatchPayload { game_id: i64, payload: Value },
     /// Snapshot AD/AP/HP (final + pico) do dono, pronto pra POST /snapshot.
-    Snapshot { game_id: i64, champion_stats: Value, peak: Value },
+    Snapshot {
+        game_id: i64,
+        champion_stats: Value,
+        peak: Value,
+    },
 }
 
 impl OutboxItem {
@@ -91,7 +94,12 @@ impl Outbox {
     pub fn push(&mut self, item: OutboxItem) -> u64 {
         let id = self.file.next_id;
         self.file.next_id += 1;
-        self.file.entries.push(OutboxEntry { id, item, permanent_failures: 0, last_error: None });
+        self.file.entries.push(OutboxEntry {
+            id,
+            item,
+            permanent_failures: 0,
+            last_error: None,
+        });
         self.save_logged();
         id
     }
@@ -105,9 +113,11 @@ impl Outbox {
     }
 
     pub fn has_snapshot_for(&self, game_id: i64) -> bool {
-        self.file.entries.iter().any(|e| matches!(
-            &e.item, OutboxItem::Snapshot { game_id: g, .. } if *g == game_id
-        ))
+        self.file.entries.iter().any(|e| {
+            matches!(
+                &e.item, OutboxItem::Snapshot { game_id: g, .. } if *g == game_id
+            )
+        })
     }
 
     /// PendingMatch resolvido → vira MatchPayload (mantém id e contadores).
@@ -129,7 +139,10 @@ impl Outbox {
             e.permanent_failures += 1;
             e.last_error = Some(err.to_string());
             if e.permanent_failures >= MAX_PERMANENT_FAILURES {
-                eprintln!("[outbox] descartando item {id} após {} falhas 4xx: {err}", e.permanent_failures);
+                eprintln!(
+                    "[outbox] descartando item {id} após {} falhas 4xx: {err}",
+                    e.permanent_failures
+                );
                 self.file.entries.retain(|e| e.id != id);
             }
         }
@@ -150,7 +163,10 @@ mod tests {
     use super::*;
 
     fn temp_outbox(name: &str) -> Outbox {
-        let path = std::env::temp_dir().join(format!("adg-outbox-test-{name}-{}.json", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "adg-outbox-test-{name}-{}.json",
+            std::process::id()
+        ));
         let _ = std::fs::remove_file(&path);
         Outbox::load(path)
     }
@@ -170,8 +186,17 @@ mod tests {
     fn replace_preserva_id_e_remove_funciona() {
         let mut ob = temp_outbox("replace");
         let id = ob.push(OutboxItem::PendingMatch { game_id: 7 });
-        ob.replace_item(id, OutboxItem::MatchPayload { game_id: 7, payload: serde_json::json!({"x":1}) });
-        assert!(matches!(ob.entries()[0].item, OutboxItem::MatchPayload { game_id: 7, .. }));
+        ob.replace_item(
+            id,
+            OutboxItem::MatchPayload {
+                game_id: 7,
+                payload: serde_json::json!({"x":1}),
+            },
+        );
+        assert!(matches!(
+            ob.entries()[0].item,
+            OutboxItem::MatchPayload { game_id: 7, .. }
+        ));
         assert_eq!(ob.entries()[0].id, id);
         ob.remove(id);
         assert_eq!(ob.len(), 0);
