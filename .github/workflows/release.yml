@@ -1,0 +1,82 @@
+name: Release
+
+# Dispare manualmente (aba Actions → Release → Run workflow).
+# Escolha o tipo de bump; ele sobe a versão a partir da atual (src-tauri/tauri.conf.json),
+# builda o instalador no Windows e publica a release NESTE repo (público), com o
+# GITHUB_TOKEN padrão — não precisa de PAT.
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Bump da versão (a atual está em src-tauri/tauri.conf.json)"
+        type: choice
+        required: true
+        default: patch
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}   # checa out a branch (não detached) p/ poder commitar o bump
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Instalar dependências
+        run: npm install
+
+      - name: Subir a versão (tauri.conf.json, Cargo.toml, package.json)
+        id: bump
+        run: node bump-version.mjs ${{ inputs.bump }}
+
+      - name: Buildar o instalador
+        run: npm run tauri build
+        env:
+          # URL pública da API assada no binário (defina a variável de repositório
+          # ADG_API_URL em Settings → Secrets and variables → Actions → Variables).
+          # Se vazia, o app usa http://localhost:3100 (default).
+          ADG_API_URL: ${{ vars.ADG_API_URL }}
+
+      - name: Commit do bump de versão
+        shell: bash
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore: release v${{ steps.bump.outputs.new }}"
+          git push
+
+      - name: Publicar release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          V: ${{ steps.bump.outputs.new }}
+        run: |
+          # Nome estável p/ o instalador (link fixo via releases/latest/download)
+          NSIS=$(ls src-tauri/target/release/bundle/nsis/*-setup.exe | head -1)
+          cp "$NSIS" "ADG-Companion-Setup.exe"
+          gh release create "v$V" \
+            "ADG-Companion-Setup.exe" \
+            src-tauri/target/release/bundle/msi/*.msi \
+            --title "ADG Companion v$V" \
+            --notes "Sincroniza ARAM: Mayhem do cliente do LoL pro ADG (Windows).
+
+          Instalador (link fixo, sempre a última versão):
+          https://github.com/${{ github.repository }}/releases/latest/download/ADG-Companion-Setup.exe
+
+          Também inclui o pacote MSI. Atualiza in-place uma instalação anterior."
